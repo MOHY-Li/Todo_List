@@ -1,0 +1,10 @@
+[application]
+name = "待办"
+asset_dir = "assets"
+
+[web.app]
+title = "待办"
+
+[desktop.app]
+title = "待办"
+window_size = { width = 960, height = 640 }
