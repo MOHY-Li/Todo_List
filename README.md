@@ -54,6 +54,12 @@ assets/
   app.css          # 额外样式
 ```
 
+## 应用截图
+
+### 主界面
+
+![Todo List Overview](docs/screenshots/overview.png)
+
 ## 未来计划
 
 - 键盘快捷键
