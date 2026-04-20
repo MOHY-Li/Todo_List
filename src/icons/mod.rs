@@ -1,16 +1,16 @@
 use dioxus::prelude::*;
 
-#[derive(Props, Clone, PartialEq)]
+#[derive(Props, Clone, PartialEq, Eq)]
 pub struct IconProps {
     pub size: u32,
 }
 
 /// Macro to define Lucide-style SVG icon components.
-/// Usage: `icon!(CheckIcon, "M20 6L9 17l-5-5", 2.5);`
+/// Usage: `icon!(CheckIcon, r#"<path d="M20 6L9 17l-5-5" stroke-width="2.5"/>"#);`
 macro_rules! icon {
     ($name:ident, $body:expr) => {
         #[allow(non_snake_case)]
- #[component]
+        #[component]
         pub fn $name(props: IconProps) -> Element {
             rsx! {
                 svg {

@@ -1,17 +1,20 @@
-use chrono::{Local, TimeZone};
+use chrono::{Datelike, Local};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Todo {
     pub id: u64,
     pub title: String,
     pub completed: bool,
     pub priority: Priority,
     pub category: String,
+    #[serde(default)]
+    pub date: String,
     pub created_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, Copy)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, Copy)]
 pub enum Priority {
     #[default]
     Medium,
@@ -22,14 +25,14 @@ pub enum Priority {
 impl std::fmt::Display for Priority {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Priority::Low => write!(f, "低"),
-            Priority::Medium => write!(f, "中"),
-            Priority::High => write!(f, "高"),
+            Self::Low => write!(f, "低"),
+            Self::Medium => write!(f, "中"),
+            Self::High => write!(f, "高"),
         }
     }
 }
 
-#[derive(Default, Clone, PartialEq, Copy)]
+#[derive(Default, Clone, PartialEq, Eq, Copy)]
 pub enum Tab {
     Yesterday,
     #[default]
@@ -38,50 +41,60 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub fn title(&self) -> &'static str {
+    pub const fn title(self) -> &'static str {
         match self {
-            Tab::Yesterday => "昨天",
-            Tab::Today => "今天",
-            Tab::Tomorrow => "明天",
+            Self::Yesterday => "昨天",
+            Self::Today => "今天",
+            Self::Tomorrow => "明天",
         }
     }
 
-    pub fn filter_todos<'a>(&self, todos: &'a [Todo]) -> Vec<&'a Todo> {
-        let now = Local::now();
-        let today = now.date_naive();
-        let yesterday = today - chrono::Duration::days(1);
-        let tomorrow = today + chrono::Duration::days(1);
+    /// Tab button label with date, e.g. "今天 04/20"
+    pub fn label(self) -> String {
+        let date = self.target_date();
+        format!("{} {}", self.title(), date.format("%m/%d"))
+    }
 
+    fn target_date(self) -> chrono::NaiveDate {
+        let today = Local::now().date_naive();
         match self {
-            Tab::Yesterday => todos
-                .iter()
-                .filter(|t| {
-                    let Some(dt) = Local.timestamp_opt(t.created_at as i64, 0).single() else {
-                        return false;
-                    };
-                    dt.date_naive() == yesterday
-                })
-                .collect(),
-            Tab::Today => todos
-                .iter()
-                .filter(|t| {
-                    let Some(dt) = Local.timestamp_opt(t.created_at as i64, 0).single() else {
-                        return false;
-                    };
-                    dt.date_naive() == today
-                })
-                .collect(),
-            Tab::Tomorrow => todos
-                .iter()
-                .filter(|t| {
-                    let Some(dt) = Local.timestamp_opt(t.created_at as i64, 0).single() else {
-                        return false;
-                    };
-                    dt.date_naive() == tomorrow
-                })
-                .collect(),
+            Self::Yesterday => today - chrono::Duration::days(1),
+            Self::Today => today,
+            Self::Tomorrow => today + chrono::Duration::days(1),
         }
     }
+
+    pub fn target_date_str(self) -> String {
+        self.target_date().format("%Y-%m-%d").to_string()
+    }
+
+    pub fn filter_todos(self, todos: &[Todo]) -> Vec<&Todo> {
+        let target = self.target_date_str();
+        todos.iter().filter(|t| t.date == target).collect()
+    }
+}
+
+/// Get today's date string in YYYY-MM-DD format.
+#[allow(dead_code)]
+pub fn today_str() -> String {
+    Local::now().date_naive().format("%Y-%m-%d").to_string()
+}
+
+/// Get today's date formatted for display, e.g. "2026/04/20 周日"
+pub fn today_display() -> String {
+    let today = Local::now().date_naive();
+    let weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    let wd = weekdays[today.weekday().num_days_from_sunday() as usize];
+    format!("{} {}", today.format("%Y/%m/%d"), wd)
+}
+
+/// Return the three valid date strings: yesterday, today, tomorrow.
+pub fn three_day_window() -> [String; 3] {
+    [
+        Tab::Yesterday.target_date_str(),
+        Tab::Today.target_date_str(),
+        Tab::Tomorrow.target_date_str(),
+    ]
 }
 
 pub fn count_by_status(todos: &[Todo]) -> (usize, usize) {
@@ -95,8 +108,9 @@ pub fn get_categories(todos: &[Todo]) -> Vec<String> {
         .iter()
         .map(|t| t.category.clone())
         .filter(|c| !c.is_empty())
+        .collect::<HashSet<_>>()
+        .into_iter()
         .collect();
     cats.sort();
-    cats.dedup();
     cats
 }

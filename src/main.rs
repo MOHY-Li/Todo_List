@@ -1,23 +1,23 @@
 use std::time::Duration;
 
+mod components;
 mod icons;
 mod models;
 mod storage;
-mod components;
 
 use dioxus::prelude::*;
 
-use components::*;
+use components::{AddForm, Sidebar, TodoList};
 use icons::{CircleIcon, FlameIcon, MinusIcon, SearchIcon};
-use models::*;
-use storage::*;
+use models::{count_by_status, get_categories, Priority, Tab, Todo};
+use storage::{load_todos, save_todos};
 
 fn persist_snapshot(todos: &Signal<Vec<Todo>>) {
     let snapshot = todos.read().clone();
     save_todos(&snapshot);
 }
 
-#[allow(non_snake_case)]
+#[allow(non_snake_case, clippy::too_many_lines)]
 fn App() -> Element {
     let mut todos = use_signal(load_todos);
     let mut next_id = use_signal(|| {
@@ -32,30 +32,17 @@ fn App() -> Element {
     let search_query = use_signal(String::new);
     let mut search_input = use_signal(String::new);
 
-    // Build view data
+    // Build view data — single chain filter
     let todos_snapshot = todos.read();
     let tab_filtered = selected_tab.read().filter_todos(&todos_snapshot);
     let category_filter = selected_category.read().clone();
     let selected_priority_value = *selected_priority.read();
-    let view_refs: Vec<&Todo> = if category_filter.is_empty() {
-        tab_filtered
-    } else {
-        tab_filtered
-            .into_iter()
-            .filter(|t| t.category == category_filter)
-            .collect()
-    };
-
-    let priority_filtered_refs: Vec<&Todo> = if let Some(priority) = selected_priority_value {
-        view_refs
-            .into_iter()
-            .filter(|t| t.priority == priority)
-            .collect()
-    } else {
-        view_refs
-    };
-
-    let mut view_todos: Vec<Todo> = priority_filtered_refs.into_iter().cloned().collect();
+    let mut view_todos: Vec<Todo> = tab_filtered
+        .into_iter()
+        .filter(|t| category_filter.is_empty() || t.category == category_filter)
+        .filter(|t| selected_priority_value.is_none_or(|p| t.priority == p))
+        .cloned()
+        .collect();
     view_todos.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     let counts = count_by_status(&todos_snapshot);
@@ -63,11 +50,9 @@ fn App() -> Element {
     drop(todos_snapshot);
 
     rsx! {
-        link { rel: "stylesheet", href: "https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" }
-        link { rel: "stylesheet", href: "https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" }
         style { {include_str!("../assets/app.css")} }
 
-        div { class: "flex h-screen bg-gray-100 dark:bg-gray-900 font-sans select-none",
+        div { class: "app-root",
             Sidebar {
                 counts,
                 selected_tab: *selected_tab.read(),
@@ -75,37 +60,37 @@ fn App() -> Element {
                 categories: categories.clone(),
                 on_tab: move |tab| selected_tab.set(tab),
                 on_category: move |cat| selected_category.set(cat),
-                on_clear_completed: move |_| {
+                on_clear_completed: move |()| {
                     todos.write().retain(|t| !t.completed);
                     persist_snapshot(&todos);
                 },
             }
 
-            div { class: "flex-1 flex flex-col min-w-0 overflow-hidden",
-                div { class: "px-4 pt-4 pb-3 shrink-0",
-                    div { class: "max-w-5xl mx-auto w-full",
-                        div { class: "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 py-3 shadow-sm",
-                            div { class: "flex items-center justify-between gap-3",
-                                div { class: "min-w-0",
-                                    p { class: "text-xs text-gray-400 uppercase tracking-wide", "Workspace" }
-                                    h2 { class: "text-lg font-semibold text-gray-800 dark:text-gray-100 truncate mt-0.5",
+            div { class: "main-content",
+                div { class: "header-outer",
+                    div { class: "centered-wrap",
+                        div { class: "header-card",
+                            div { class: "header-row",
+                                div { class: "header-labels",
+                                    p { class: "label-sm", "Workspace" }
+                                    h2 { class: "title-md",
                                         "{selected_tab.read().title()}"
                                     }
-                                    p { class: "text-xs text-gray-400 mt-1",
+                                    p { class: "subtitle-sm",
                                         if view_todos.is_empty() { "当前分组暂无任务" } else { "当前分组共 {view_todos.len()} 项" }
                                     }
                                 }
 
-                                div { class: "shrink-0 flex flex-col items-end justify-center gap-1.5",
-                                    div { class: "relative",
-                                        span { class: "absolute left-3 inset-y-0 flex items-center text-gray-400 pointer-events-none", SearchIcon { size: 13 } }
+                                div { class: "header-actions",
+                                    div { class: "search-wrap",
+                                        span { class: "search-icon", SearchIcon { size: 13 } }
                                         input {
-                                            class: "h-9 pl-8 pr-3 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400 text-gray-700 dark:text-gray-200 placeholder-gray-400 w-72 transition-all focus:w-[40rem]",
+                                            class: "search-input input-focus search-field",
                                             r#type: "text",
                                             placeholder: "搜索任务...",
                                             value: "{search_input}",
                                             oninput: move |e: FormEvent| {
-                                                let next = e.value().clone();
+                                                let next = e.value();
                                                 search_input.set(next.clone());
                                                 spawn({
                                                     let current_input = search_input;
@@ -121,30 +106,26 @@ fn App() -> Element {
                                         }
                                     }
 
-                                    div { class: "flex items-center gap-1",
+                                    div { class: "filter-row",
                                         button {
-                                            class: "h-6 px-2 rounded-lg border border-gray-200 dark:border-gray-700 text-[10px] transition-colors flex items-center gap-1",
-                                            class: if selected_priority.read().is_none() { "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200" } else { "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700" },
+                                            class: if selected_priority.read().is_none() { "filter-btn active" } else { "filter-btn" },
                                             onclick: move |_| selected_priority.set(None),
                                             "全部"
                                         }
                                         button {
-                                            class: "h-6 px-2 rounded-lg border border-emerald-200 dark:border-emerald-700 text-[10px] transition-colors flex items-center gap-1",
-                                            class: if *selected_priority.read() == Some(Priority::Low) { "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300" } else { "bg-white dark:bg-gray-800 text-emerald-500/80 hover:bg-emerald-50/60 dark:hover:bg-emerald-900/20" },
+                                            class: if *selected_priority.read() == Some(Priority::Low) { "filter-btn active-low" } else { "filter-btn" },
                                             onclick: move |_| selected_priority.set(Some(Priority::Low)),
                                             CircleIcon { size: 9 }
                                             "低"
                                         }
                                         button {
-                                            class: "h-6 px-2 rounded-lg border border-amber-200 dark:border-amber-700 text-[10px] transition-colors flex items-center gap-1",
-                                            class: if *selected_priority.read() == Some(Priority::Medium) { "bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300" } else { "bg-white dark:bg-gray-800 text-amber-500/80 hover:bg-amber-50/60 dark:hover:bg-amber-900/20" },
+                                            class: if *selected_priority.read() == Some(Priority::Medium) { "filter-btn active-med" } else { "filter-btn" },
                                             onclick: move |_| selected_priority.set(Some(Priority::Medium)),
                                             MinusIcon { size: 9 }
                                             "中"
                                         }
                                         button {
-                                            class: "h-6 px-2 rounded-lg border border-red-200 dark:border-red-700 text-[10px] transition-colors flex items-center gap-1",
-                                            class: if *selected_priority.read() == Some(Priority::High) { "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300" } else { "bg-white dark:bg-gray-800 text-red-500/80 hover:bg-red-50/60 dark:hover:bg-red-900/20" },
+                                            class: if *selected_priority.read() == Some(Priority::High) { "filter-btn active-high" } else { "filter-btn" },
                                             onclick: move |_| selected_priority.set(Some(Priority::High)),
                                             FlameIcon { size: 9 }
                                             "高"
@@ -156,11 +137,12 @@ fn App() -> Element {
                     }
                 }
 
-                div { class: "flex-1 overflow-y-auto px-4 pb-4",
-                    div { class: "max-w-5xl mx-auto w-full space-y-3",
+                div { class: "content-scroll",
+                    div { class: "content-inner",
                         AddForm {
-                            categories: categories.clone(),
-                            on_add: move |(title, category, priority): (String, String, Priority)| {
+                            categories,
+                            active_tab: *selected_tab.read(),
+                            on_add: move |(title, category, priority, date): (String, String, Priority, String)| {
                                 let id = *next_id.read();
                                 next_id.set(id + 1);
                                 let new_todo = Todo {
@@ -169,6 +151,7 @@ fn App() -> Element {
                                     completed: false,
                                     priority,
                                     category,
+                                    date,
                                     created_at: std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .unwrap_or_default()
@@ -206,7 +189,7 @@ fn App() -> Element {
                                 edit_id.set(None);
                                 persist_snapshot(&todos);
                             },
-                            on_edit_cancel: move |_| {
+                            on_edit_cancel: move |()| {
                                 edit_id.set(None);
                             },
                         }
